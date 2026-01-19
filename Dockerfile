@@ -1,4 +1,4 @@
-FROM oven/bun:1 AS base
+FROM oven/bun:1-alpine AS base
 WORKDIR /app
 
 FROM base AS install
@@ -12,4 +12,11 @@ COPY --from=install /app/prisma ./prisma
 COPY . .
 RUN bun run prisma generate
 
+# Default: run once (for Render cron jobs, CI, etc.)
 CMD ["bun", "run", "index.ts"]
+
+# Cron variant: use `docker build --target cron` to build this
+FROM release AS cron
+RUN chmod +x /app/entrypoint.sh
+# CRON_SCHEDULE env var controls the schedule (default: hourly)
+CMD ["/app/entrypoint.sh"]
