@@ -8,6 +8,13 @@ const prisma = new PrismaClient({ adapter })
 
 console.log("Hello via Bun!");
 
+const MAX_FOLLOWERS = parseInt(process.env.MAX_FOLLOWERS ?? "1000");
+const GITHUB_HEADERS = {
+  "Accept": "application/vnd.github.v3+json",
+  "User-Agent": "Bun",
+  "X-GitHub-Api-Version": "2022-11-28"
+};
+
 type GithubFollower = {
   login: string;
   id: number;
@@ -30,23 +37,59 @@ type GithubFollower = {
   site_admin: boolean;
 };
 
+function parseNextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+  return match?.at(1) ?? null;
+}
+
+async function fetchFollowerCount(username: string): Promise<number> {
+  const response = await fetch(`https://api.github.com/users/${username}`, { headers: GITHUB_HEADERS });
+  const user = await response.json() as { followers: number };
+  return user.followers;
+}
+
+async function fetchAllFollowers(username: string): Promise<GithubFollower[]> {
+  const followers: GithubFollower[] = [];
+  let url: string | null = `https://api.github.com/users/${username}/followers?per_page=100`;
+
+  while (url && followers.length < MAX_FOLLOWERS) {
+    const response = await fetch(url, { headers: GITHUB_HEADERS });
+    const page = await response.json() as GithubFollower[];
+    followers.push(...page);
+    url = parseNextLink(response.headers.get("link") ?? null);
+  }
+
+  if (followers.length >= MAX_FOLLOWERS) {
+    console.log(`${username}: hit MAX_FOLLOWERS limit (${MAX_FOLLOWERS}), results may be incomplete`);
+    return followers.slice(0, MAX_FOLLOWERS);
+  }
+
+  return followers;
+}
+
 async function processUser(user: { id: string; githubUsername: string; webhook_url: string }) {
   console.log(`Processing user: ${user.githubUsername}`);
 
-  const [existingFollowers, response] = await Promise.all([
-    prisma.follower.findMany({ where: { userId: user.id } }),
-    fetch(`https://api.github.com/users/${user.githubUsername}/followers`, {
-      headers: {
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "Bun",
-        "X-GitHub-Api-Version": "2022-11-28"
-      }
-    })
+  const [existingCount, githubCount] = await Promise.all([
+    prisma.follower.count({ where: { userId: user.id } }),
+    fetchFollowerCount(user.githubUsername)
   ]);
 
-  const isFirstRun = existingFollowers.length === 0;
-  const followers = await response.json() as GithubFollower[];
-  console.log(`${user.githubUsername}: ${existingFollowers.length} existing, ${followers.length} current`);
+  console.log(`${user.githubUsername}: ${existingCount} stored, ${githubCount} on GitHub`);
+
+  if (existingCount === githubCount) {
+    console.log(`${user.githubUsername}: no change, skipping`);
+    return;
+  }
+
+  const [existingFollowers, followers] = await Promise.all([
+    prisma.follower.findMany({ where: { userId: user.id } }),
+    fetchAllFollowers(user.githubUsername)
+  ]);
+
+  const isFirstRun = existingCount === 0;
+  console.log(`${user.githubUsername}: fetched ${followers.length} followers`);
 
   const existingFollowerIds = new Set(existingFollowers.map(f => f.githubId));
   const currentFollowerIds = new Set(followers.map(f => String(f.id)));
@@ -150,6 +193,7 @@ async function processUser(user: { id: string; githubUsername: string; webhook_u
 }
 
 async function main() {
+  console.time("Total Processing Time");
   const users = await prisma.user.findMany();
   await Promise.all(users.map(processUser));
 }
@@ -160,4 +204,6 @@ main().then(() => {
   console.error("Error in main function:", error);
 }).finally(() => {
   prisma.$disconnect();
+  console.timeEnd("Total Processing Time");
+  console.log("Run complete at ", new Date().toISOString());
 });
