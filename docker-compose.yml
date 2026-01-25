@@ -1,0 +1,11 @@
+services:
+  tracker:
+    build:
+      context: .
+      target: cron
+    env_file:
+      - .env
+    environment:
+      - CRON_SCHEDULE=${CRON_SCHEDULE:-0 * * * *}
+    container_name: tracker
+    restart: unless-stopped
