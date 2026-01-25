@@ -7,11 +7,15 @@ const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
 const MAX_FOLLOWERS = parseInt(process.env.MAX_FOLLOWERS ?? "1000", 10);
-const GITHUB_HEADERS = {
+const GITHUB_HEADERS: Record<string, string> = {
   Accept: "application/vnd.github.v3+json",
   "User-Agent": "Bun",
   "X-GitHub-Api-Version": "2022-11-28",
 };
+
+if (process.env.GITHUB_TOKEN) {
+  GITHUB_HEADERS.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+}
 
 type GithubFollower = {
   login: string;
