@@ -1,4 +1,17 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: tracker-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tracker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-tracker}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - tracker-net
+
   tracker:
     build:
       context: .
@@ -9,3 +22,13 @@ services:
       - CRON_SCHEDULE=${CRON_SCHEDULE:-0 * * * *}
     container_name: tracker
     restart: unless-stopped
+    depends_on:
+      - postgres
+    networks:
+      - tracker-net
+
+networks:
+  tracker-net:
+
+volumes:
+  postgres_data:

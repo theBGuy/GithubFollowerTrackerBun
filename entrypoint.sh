@@ -16,6 +16,10 @@ chmod +x /app/run-job.sh
 # Create crontab file
 echo "${CRON_SCHEDULE:-0 * * * *} /app/run-job.sh" > /etc/crontabs/root
 
+# Apply any pending migrations before starting
+echo "Applying database migrations..."
+/usr/local/bin/bun run prisma migrate deploy
+
 # Run once on startup so you know it works
 echo "Running initial job..."
 /app/run-job.sh
